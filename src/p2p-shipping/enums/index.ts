@@ -1,0 +1,64 @@
+export enum CourierVerificationState {
+    DRAFT = 'DRAFT',
+    SUBMITTED = 'SUBMITTED',
+    PENDING_REVIEW = 'PENDING_REVIEW',
+    APPROVED = 'APPROVED',
+    ACTIVE = 'ACTIVE',
+    SUSPENDED = 'SUSPENDED',
+    REJECTED = 'REJECTED',
+}
+
+export enum RouteStatus {
+    DRAFT = 'DRAFT',
+    PUBLISHED = 'PUBLISHED',
+    PAUSED = 'PAUSED',
+    EXPIRED = 'EXPIRED',
+    REMOVED = 'REMOVED',
+}
+
+export enum ShipmentRequestStatus {
+    DRAFT = 'DRAFT',
+    OPEN = 'OPEN',
+    MATCHED = 'MATCHED',
+    RESERVED = 'RESERVED',
+    HANDOFF_PENDING = 'HANDOFF_PENDING',
+    IN_TRANSIT = 'IN_TRANSIT',
+    DELIVERED = 'DELIVERED',
+    COMPLETED = 'COMPLETED',
+    CANCELLED = 'CANCELLED',
+    DISPUTED = 'DISPUTED',
+    REJECTED = 'REJECTED',
+}
+
+export enum WaiverStatus {
+    PENDING = 'PENDING',
+    ACCEPTED = 'ACCEPTED',
+    DECLINED = 'DECLINED',
+    EXPIRED = 'EXPIRED',
+}
+
+export enum OfferStatus {
+    PROPOSED = 'PROPOSED',
+    ACCEPTED = 'ACCEPTED',
+    REJECTED = 'REJECTED',
+    EXPIRED = 'EXPIRED',
+    CANCELLED = 'CANCELLED',
+}
+
+export enum CourierRequestStatus {
+    PENDING = 'PENDING',
+    ACCEPTED = 'ACCEPTED',
+    DECLINED = 'DECLINED',
+    CANCELLED = 'CANCELLED',
+    EXPIRED = 'EXPIRED',
+}
+
+export enum ItemCategory {
+    DOCUMENTS = 'DOCUMENTS',
+    CLOTHING = 'CLOTHING',
+    ELECTRONICS = 'ELECTRONICS',
+    ACCESSORIES = 'ACCESSORIES',
+    FOOD = 'FOOD',
+    MEDICINE = 'MEDICINE',
+    OTHER = 'OTHER',
+}
