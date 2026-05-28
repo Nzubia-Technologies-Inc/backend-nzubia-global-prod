@@ -1,0 +1,99 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build-and-deploy:
+    name: Build, Test & Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      # ── SSH setup ────────────────────────────────────────────────────────────
+
+      - name: Configure SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add server to known hosts
+        run: ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+      # ── Sync artifacts ───────────────────────────────────────────────────────
+      # Sync compiled output (--delete removes stale files inside dist/ on server)
+      # The .env on the server is NOT touched — it was set up manually.
+
+      - name: Sync dist to server
+        run: |
+          rsync -az --delete \
+            dist/ \
+            root@${{ secrets.SERVER_HOST }}:/root/apps/api/dist/
+
+      - name: Sync package files and Dockerfile
+        run: |
+          rsync -az \
+            package.json \
+            package-lock.json \
+            Dockerfile \
+            root@${{ secrets.SERVER_HOST }}:/root/apps/api/
+
+      # ── Rebuild and restart ──────────────────────────────────────────────────
+
+      - name: Build Docker image on server
+        run: |
+          ssh root@${{ secrets.SERVER_HOST }} \
+            'cd /root/apps/api && docker build -t deployment-api:latest .'
+
+      - name: Recreate nzubia-api container
+        run: |
+          ssh root@${{ secrets.SERVER_HOST }} '
+            docker rm -f nzubia-api || true
+            docker run -d \
+              --name nzubia-api \
+              --restart always \
+              -p 3000:3000 \
+              --env-file /root/apps/api/.env \
+              deployment-api:latest
+          '
+
+      # ── Smoke test ───────────────────────────────────────────────────────────
+
+      - name: Wait for container to start
+        run: sleep 8
+
+      - name: Smoke test
+        run: |
+          ssh root@${{ secrets.SERVER_HOST }} '
+            curl -sf --max-time 10 http://127.0.0.1:3000/api/v1/platform-settings \
+              -o /dev/null \
+              -w "HTTP %{http_code}\n"
+          ' || {
+            echo "--- Smoke test failed. Container logs: ---"
+            ssh root@${{ secrets.SERVER_HOST }} 'docker logs --tail 80 nzubia-api'
+            exit 1
+          }
+
+      - name: Print container status
+        if: always()
+        run: |
+          ssh root@${{ secrets.SERVER_HOST }} \
+            'docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Image}}"'
