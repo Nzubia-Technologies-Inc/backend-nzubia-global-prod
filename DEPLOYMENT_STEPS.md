@@ -25,6 +25,7 @@ Release root rule:
 3. Run or add tests for the changed area when possible.
 4. If the change adds or alters database tables, create a TypeORM migration instead of relying on `synchronize`.
 5. Verify that any new tables or foreign keys match the live MySQL schema types and charset.
+6. If the release includes file uploads, confirm nginx allows the expected body size. The live proxy returns `413 Request Entity Too Large` before Nest receives the request when `client_max_body_size` is too small.
 
 ## Local Release Checklist
 
@@ -177,3 +178,4 @@ If a release causes issues:
 - Avoid turning on global `synchronize` in production.
 - Add a smoke test for any endpoint whose behavior changed.
 - Update this file whenever the deployment process changes.
+- File upload smoke tests should include the reverse proxy limit. If uploads fail with 413, update the nginx server block to a larger `client_max_body_size` and reload nginx before retrying the app.

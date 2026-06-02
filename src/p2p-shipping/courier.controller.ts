@@ -23,6 +23,7 @@ import {
     mapCourierStatus,
     mapOffer,
     mapReputation,
+    mapShipmentRequest,
 } from './mappers';
 
 @ApiTags('P2P Shipping')
@@ -95,6 +96,28 @@ export class CourierController {
         return couriers.map(mapCourierProfile);
     }
 
+    // ──────────── Nearby open shipments ────────────
+
+    @Get('me/nearby-shipments')
+    @ApiOperation({
+        summary: 'Courier browses OPEN shipment requests within 50 miles of their home location',
+    })
+    async listNearbyOpenShipments(@Request() req) {
+        const requests = await this.shipmentService.listNearbyOpenShipments(req.user.id);
+        return requests.map(mapShipmentRequest);
+    }
+
+    // ──────────── Incoming requests (courier dashboard) ────────────
+
+    @Get('me/requests')
+    @ApiOperation({
+        summary: 'Courier lists all direct shipment requests sent by seekers (dashboard)',
+    })
+    async listIncomingRequests(@Request() req) {
+        const requests = await this.shipmentService.listIncomingCourierRequests(req.user.id);
+        return requests.map(mapCourierRequest);
+    }
+
     @Get(':id')
     @ApiOperation({ summary: 'Get a public courier profile by ID' })
     async getPublicProfile(@Param('id') id: string) {
@@ -107,17 +130,6 @@ export class CourierController {
     async getReputation(@Param('id') id: string) {
         const rep = await this.courierService.getReputation(id);
         return mapReputation(rep);
-    }
-
-    // ──────────── Incoming requests (courier dashboard) ────────────
-
-    @Get('me/requests')
-    @ApiOperation({
-        summary: 'Courier lists all direct shipment requests sent by seekers (dashboard)',
-    })
-    async listIncomingRequests(@Request() req) {
-        const requests = await this.shipmentService.listIncomingCourierRequests(req.user.id);
-        return requests.map(mapCourierRequest);
     }
 
     @Post('me/requests/:requestId/accept')

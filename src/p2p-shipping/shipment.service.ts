@@ -24,10 +24,11 @@ import { RaiseDisputeDto } from './dto/raise-dispute.dto';
 import { SendCourierRequestDto } from './dto/send-courier-request.dto';
 import { AcceptCourierRequestDto, DeclineCourierRequestDto } from './dto/respond-courier-request.dto';
 import { EmailService } from '../notifications/email/email.service';
+import { PushNotificationService } from '../notifications/push/push-notification.service';
 import { MessagingService } from '../messaging/messaging.service';
 import { PaymentsService } from '../payments/payments.service';
 import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
-import { scoreRoute } from './route.service';
+import { haversineKm, scoreRoute } from './route.service';
 
 /** State machine: which statuses can transition to which */
 const VALID_TRANSITIONS: Record<ShipmentRequestStatus, ShipmentRequestStatus[]> = {
@@ -84,6 +85,7 @@ export class ShipmentService {
         private courierRequestRepo: Repository<P2pCourierRequest>,
 
         private emailService: EmailService,
+        private pushService: PushNotificationService,
         private messagingService: MessagingService,
         private paymentsService: PaymentsService,
         private platformSettingsService: PlatformSettingsService,
@@ -205,8 +207,53 @@ export class ShipmentService {
         }
 
         request.status = dto.status;
-        return this.requestRepo.save(request);
+        const saved = await this.requestRepo.save(request);
+
+        if (dto.status === ShipmentRequestStatus.OPEN) {
+            this.notifyNearbyCouriersOfNewRequest(saved).catch((err) =>
+                this.logger.warn(`Failed to notify nearby couriers: ${err.message}`),
+            );
+        }
+
+        return saved;
     }
+
+    /** Fire-and-forget: finds ACTIVE couriers within 50 miles of the request origin
+     *  and sends each a push notification via OneSignal. */
+    private async notifyNearbyCouriersOfNewRequest(request: P2pShipmentRequest): Promise<void> {
+        const RADIUS_KM = 80.47;
+
+        const profiles = await this.courierProfileRepo.find({
+            where: { isActive: true },
+        });
+
+        const originLat = request.originLatitude != null ? Number(request.originLatitude) : null;
+        const originLng = request.originLongitude != null ? Number(request.originLongitude) : null;
+
+        const recipientIds = profiles
+            .filter((p) => {
+                if (originLat == null || originLng == null) return true;
+                if (p.homeLatitude == null || p.homeLongitude == null) return false;
+                return haversineKm(
+                    Number(p.homeLatitude),
+                    Number(p.homeLongitude),
+                    originLat,
+                    originLng,
+                ) <= RADIUS_KM;
+            })
+            .map((p) => p.user_id);
+
+        if (!recipientIds.length) return;
+
+        const dest = `${request.destinationCity}, ${request.destinationCountry}`;
+        await this.pushService.sendToUsers(
+            recipientIds,
+            'New shipment near you',
+            `A sender needs delivery to ${dest}. Tap to view and make an offer.`,
+            { type: 'P2P_MATCHED_SHIPMENT', shipment_id: request.id },
+        );
+    }
+
 
     // ──────────────────────────────── Matching ────────────────────────────────
 
@@ -250,22 +297,44 @@ export class ShipmentService {
             } as any,
         });
 
-        for (const { route } of scored.slice(0, 3)) {
-            const courierEmail = route.courierProfile?.user?.email;
-            if (courierEmail) {
-                this.emailService
-                    .sendEmail(
-                        courierEmail,
-                        'New P2P Shipment Request Matches Your Route',
-                        `A seeker has a shipment heading to ${request.destinationCity}, ${request.destinationCountry} that matches your route. Log in to review and create an offer.`,
-                    )
-                    .catch((err) =>
-                        this.logger.warn(`Failed to notify courier ${courierEmail}: ${err.message}`),
-                    );
-            }
+        return scored;
+    }
+
+    /**
+     * Returns OPEN shipment requests whose origin is within 50 miles (≈80.5 km)
+     * of the courier's registered home location.
+     * Couriers without coordinates set see all OPEN requests.
+     */
+    async listNearbyOpenShipments(courierId: string): Promise<P2pShipmentRequest[]> {
+        const profile = await this.courierProfileRepo.findOne({ where: { user_id: courierId } });
+        if (!profile) {
+            throw new ForbiddenException('Courier profile not found. Complete your courier application first.');
         }
 
-        return scored;
+        const open = await this.requestRepo.find({
+            where: { status: ShipmentRequestStatus.OPEN },
+            relations: ['seeker'],
+            order: { created_at: 'DESC' },
+        });
+
+        const homeLat = profile.homeLatitude != null ? Number(profile.homeLatitude) : null;
+        const homeLng = profile.homeLongitude != null ? Number(profile.homeLongitude) : null;
+        const RADIUS_KM = 80.47; // 50 miles
+
+        if (homeLat == null || homeLng == null) {
+            return open;
+        }
+
+        return open.filter((req) => {
+            if (req.originLatitude == null || req.originLongitude == null) return true;
+            const dist = haversineKm(
+                homeLat,
+                homeLng,
+                Number(req.originLatitude),
+                Number(req.originLongitude),
+            );
+            return dist <= RADIUS_KM;
+        });
     }
 
     // ──────────────────────────────── Offers ────────────────────────────────
@@ -358,7 +427,7 @@ export class ShipmentService {
         return saved;
     }
 
-    async acceptOffer(seekerId: string, offerId: string): Promise<P2pOffer> {
+    async acceptOffer(seekerId: string, offerId: string): Promise<{ offer: P2pOffer; clientSecret: string | null }> {
         const offer = await this.offerRepo.findOne({
             where: { id: offerId },
             relations: ['shipmentRequest', 'shipmentRequest.seeker', 'route', 'route.courierProfile', 'route.courierProfile.user'],
@@ -372,6 +441,8 @@ export class ShipmentService {
         if (offer.status !== OfferStatus.PROPOSED) {
             throw new BadRequestException(`Offer is no longer PROPOSED (status: ${offer.status}).`);
         }
+
+        let clientSecret: string | null = null;
 
         if (offer.offerAmountUsd && Number(offer.offerAmountUsd) > 0) {
             try {
@@ -388,12 +459,14 @@ export class ShipmentService {
                 );
                 offer.paymentReference = intent.id;
                 offer.paymentStatus = 'PENDING';
+                clientSecret = intent.clientSecret;
                 this.logger.log(
                     `Payment intent created for offer ${offerId}: ${intent.id} ` +
                     `(${offer.offerAmountUsd} USD, platform fee ${platformFeeCents} cents)`,
                 );
-            } catch (err) {
-                this.logger.warn(`PaymentsService unavailable for offer ${offerId}: ${err.message}. Recording PENDING hold.`);
+            } catch (err: unknown) {
+                const msg = err instanceof Error ? err.message : String(err);
+                this.logger.warn(`PaymentsService unavailable for offer ${offerId}: ${msg}. Recording PENDING hold.`);
                 offer.paymentReference = `PENDING_MANUAL_${offerId}`;
                 offer.paymentStatus = 'PENDING';
             }
@@ -433,7 +506,7 @@ export class ShipmentService {
                 );
         }
 
-        return offer;
+        return { offer, clientSecret };
     }
 
     async rejectOffer(seekerId: string, offerId: string): Promise<P2pOffer> {

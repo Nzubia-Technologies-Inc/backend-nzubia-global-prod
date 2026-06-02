@@ -108,8 +108,8 @@ export class ShipmentController {
     @Post('offers/:offerId/accept')
     @ApiOperation({ summary: 'Seeker accepts a courier offer (holds payment)' })
     async acceptOffer(@Param('offerId') offerId: string, @Request() req) {
-        const offer = await this.shipmentService.acceptOffer(req.user.id, offerId);
-        return mapOffer(offer);
+        const { offer, clientSecret } = await this.shipmentService.acceptOffer(req.user.id, offerId);
+        return { ...mapOffer(offer), client_secret: clientSecret };
     }
 
     @Post('offers/:offerId/reject')
