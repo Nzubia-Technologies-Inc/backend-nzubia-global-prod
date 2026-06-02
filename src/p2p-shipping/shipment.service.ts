@@ -301,12 +301,14 @@ export class ShipmentService {
     }
 
     /**
-     * Returns OPEN shipment requests that:
+     * Returns OPEN shipment requests that satisfy ALL of:
      *   1. Destination (country + city) matches at least one of the courier's PUBLISHED routes.
-     *   2. Origin is within 50 miles (≈80.5 km) of the courier's registered home location.
+     *   2. The seeker's pickup location (originLatitude/originLongitude) is within 50 miles
+     *      (≈80.5 km) of the courier's registered home location.
      *
-     * Couriers with no home coordinates set skip the proximity check (condition 2 only).
-     * Couriers with no PUBLISHED routes receive an empty list — they can't carry anything yet.
+     * Shipments with no origin coordinates are excluded — proximity cannot be verified.
+     * Couriers with no home coordinates set skip condition 2 (degrade gracefully until they add location).
+     * Couriers with no PUBLISHED routes receive an empty list.
      */
     async listNearbyOpenShipments(courierId: string): Promise<P2pShipmentRequest[]> {
         const profile = await this.courierProfileRepo.findOne({ where: { user_id: courierId } });
@@ -336,6 +338,7 @@ export class ShipmentService {
         const RADIUS_KM = 80.47; // 50 miles
 
         return open.filter((req) => {
+            // Condition 1: shipment destination must match one of the courier's routes
             const destCountry = req.destinationCountry.toLowerCase();
             const destCity = req.destinationCity.toLowerCase();
             const hasMatchingRoute = routeDestinations.some(
@@ -343,8 +346,9 @@ export class ShipmentService {
             );
             if (!hasMatchingRoute) return false;
 
-            if (homeLat == null || homeLng == null) return true;
-            if (req.originLatitude == null || req.originLongitude == null) return true;
+            // Condition 2: seeker's pickup location must be within 50 miles of courier home
+            if (homeLat == null || homeLng == null) return true; // courier hasn't set location yet
+            if (req.originLatitude == null || req.originLongitude == null) return false; // can't verify pickup proximity
             return (
                 haversineKm(homeLat, homeLng, Number(req.originLatitude), Number(req.originLongitude)) <=
                 RADIUS_KM
