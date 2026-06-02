@@ -42,12 +42,13 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: Add server to known hosts
+      - name: Configure SSH options
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
-          chmod 644 ~/.ssh/known_hosts
+          echo "StrictHostKeyChecking no" >> ~/.ssh/config
+          echo "UserKnownHostsFile /dev/null" >> ~/.ssh/config
+          chmod 600 ~/.ssh/config
 
       - name: Ensure server release directory exists
         run: |
@@ -60,12 +61,14 @@ jobs:
       - name: Sync dist to server
         run: |
           rsync -az --delete \
+            -e "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
             dist/ \
             root@${{ secrets.SERVER_HOST }}:/root/apps/api/dist/
 
       - name: Sync package lock
         run: |
           rsync -az \
+            -e "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
             package-lock.json \
             root@${{ secrets.SERVER_HOST }}:/root/apps/api/
 
@@ -73,15 +76,12 @@ jobs:
 
       - name: Copy dist into container
         run: |
-          ssh root@${{ secrets.SERVER_HOST }} '
-            docker cp /root/apps/api/dist/. nzubia-api:/app/dist/
-          '
+          ssh root@${{ secrets.SERVER_HOST }} \
+            'docker cp /root/apps/api/dist/. nzubia-api:/app/dist/'
 
       - name: Restart nzubia-api container
         run: |
-          ssh root@${{ secrets.SERVER_HOST }} '
-            docker restart nzubia-api
-          '
+          ssh root@${{ secrets.SERVER_HOST }} 'docker restart nzubia-api'
 
       # ── Smoke test ───────────────────────────────────────────────────────────
 
@@ -106,7 +106,6 @@ jobs:
           ssh root@${{ secrets.SERVER_HOST }} '
             STATUS=$(curl -s --max-time 10 -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/api/v1/platform-settings)
             echo "HTTP $STATUS"
-            # Accept any response except 5xx or connection failure (000)
             if [ "$STATUS" = "000" ] || [ "$STATUS" -ge 500 ] 2>/dev/null; then
               echo "Smoke test failed: HTTP $STATUS"
               docker logs --tail 80 nzubia-api
