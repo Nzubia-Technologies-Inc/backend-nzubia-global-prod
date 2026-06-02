@@ -12,6 +12,12 @@ This document is the deployment runbook for `backend-nzubia-global`. It captures
 - The production database name is `nzubia`.
 - The production MySQL schema uses `utf8mb3` for existing tables such as `users`.
 
+Release root rule:
+
+- Only `dist/` and `package-lock.json` should remain in `/root/apps/api`.
+- The container is refreshed by copying the new `dist/` tree into `nzubia-api` and restarting it.
+- Do not copy `package.json` or `Dockerfile` into the server release root.
+
 ## What To Do Before Deploying
 
 1. Pull the latest code changes in the backend repo.
@@ -66,10 +72,10 @@ Use the following sequence for a normal code release:
 
 1. Commit or stage the backend changes you want to release.
 2. Build the backend locally to confirm it still compiles.
-3. Sync the release artifacts to `/root/apps/api` on the server.
-4. Build the Docker image on the server.
-5. Recreate the `nzubia-api` container.
-6. Verify migrations ran and the app started cleanly.
+3. Sync the release artifacts to `/root/apps/api/dist/` and `/root/apps/api/package-lock.json` on the server.
+4. Copy the updated dist tree into the running `nzubia-api` container.
+5. Restart the container.
+6. Verify the app started cleanly.
 7. Run a smoke test against the changed endpoint.
 
 Suggested command flow:
@@ -84,25 +90,20 @@ npm run test
 # 2) sync release artifacts to the server
 rsync -az --delete \
 	dist/ \
-	package.json \
-	yarn.lock \
+	root@165.232.40.77:/root/apps/api/dist/
+
+rsync -az \
+	package-lock.json \
 	root@165.232.40.77:/root/apps/api/
 
-# If Dockerfile or .env changed, copy those too
-scp Dockerfile root@165.232.40.77:/root/apps/api/
-scp .env root@165.232.40.77:/root/apps/api/
+# 3) refresh the running container from the updated dist tree
+ssh root@165.232.40.77 'docker cp /root/apps/api/dist/. nzubia-api:/app/dist/ && docker restart nzubia-api'
 
-# 3) rebuild the image on the server
-ssh root@165.232.40.77 'cd /root/apps/api && docker build -t deployment-api:latest .'
-
-# 4) recreate the running container
-ssh root@165.232.40.77 'docker rm -f nzubia-api || true && docker run -d --name nzubia-api --restart always -p 3000:3000 deployment-api:latest'
-
-# 5) check the container and logs
+# 4) check the container and logs
 ssh root@165.232.40.77 'docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Image}}"'
 ssh root@165.232.40.77 'docker logs --tail 100 nzubia-api'
 
-# 6) smoke test the API from the server
+# 5) smoke test the API from the server
 ssh root@165.232.40.77 'curl -i --max-time 10 http://127.0.0.1:3000/api/v1/p2p/routes/feed'
 ```
 

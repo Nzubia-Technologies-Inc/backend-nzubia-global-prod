@@ -28,6 +28,11 @@ export class ShipmentsController {
     return this.shipmentsService.findAll(status);
   }
 
+  @Get(':id/details')
+  findOneDetails(@Param('id') id: string) {
+    return this.shipmentsService.findOne(id);
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.shipmentsService.findOne(id);

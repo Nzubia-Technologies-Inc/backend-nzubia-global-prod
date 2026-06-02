@@ -18,8 +18,8 @@ import { JwtStrategy } from './jwt.strategy';
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET'),
-        signOptions: { expiresIn: (configService.get<string>('JWT_EXPIRATION_TIME') + 's') as any },
+        secret: configService.get<string>('JWT_SECRET') ?? 'nzubia-dummy-jwt-secret',
+        signOptions: { expiresIn: `${configService.get<string>('JWT_EXPIRATION_TIME') ?? '86400'}s` as any },
       }),
       inject: [ConfigService],
     }),

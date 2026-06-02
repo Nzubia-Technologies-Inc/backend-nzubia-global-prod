@@ -38,9 +38,13 @@ jobs:
       - name: Add server to known hosts
         run: ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
 
+      - name: Ensure server release directory exists
+        run: |
+          ssh root@${{ secrets.SERVER_HOST }} 'mkdir -p /root/apps/api'
+
       # ── Sync artifacts ───────────────────────────────────────────────────────
-      # Sync compiled output (--delete removes stale files inside dist/ on server)
-      # The .env on the server is NOT touched — it was set up manually.
+      # Keep the server release root minimal: only dist/ and package-lock.json.
+      # The running container is refreshed from /root/apps/api/dist after sync.
 
       - name: Sync dist to server
         run: |
@@ -48,31 +52,24 @@ jobs:
             dist/ \
             root@${{ secrets.SERVER_HOST }}:/root/apps/api/dist/
 
-      - name: Sync package files and Dockerfile
+      - name: Sync package lock
         run: |
           rsync -az \
-            package.json \
             package-lock.json \
-            Dockerfile \
             root@${{ secrets.SERVER_HOST }}:/root/apps/api/
 
-      # ── Rebuild and restart ──────────────────────────────────────────────────
+      # ── Refresh running container ────────────────────────────────────────────
 
-      - name: Build Docker image on server
-        run: |
-          ssh root@${{ secrets.SERVER_HOST }} \
-            'cd /root/apps/api && docker build -t deployment-api:latest .'
-
-      - name: Recreate nzubia-api container
+      - name: Copy dist into container
         run: |
           ssh root@${{ secrets.SERVER_HOST }} '
-            docker rm -f nzubia-api || true
-            docker run -d \
-              --name nzubia-api \
-              --restart always \
-              -p 3000:3000 \
-              --env-file /root/apps/api/.env \
-              deployment-api:latest
+            docker cp /root/apps/api/dist/. nzubia-api:/app/dist/
+          '
+
+      - name: Restart nzubia-api container
+        run: |
+          ssh root@${{ secrets.SERVER_HOST }} '
+            docker restart nzubia-api
           '
 
       # ── Smoke test ───────────────────────────────────────────────────────────
