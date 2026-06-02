@@ -6,10 +6,11 @@ import {
     NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, ILike, LessThanOrEqual, Repository } from 'typeorm';
+import { Between, ILike, LessThanOrEqual, Not, Repository } from 'typeorm';
 import { P2pRoute } from './entities/p2p-route.entity';
 import { P2pCourierProfile } from './entities/p2p-courier-profile.entity';
-import { CourierVerificationState, RouteStatus } from './enums';
+import { P2pCourierRequest } from './entities/p2p-courier-request.entity';
+import { CourierRequestStatus, CourierVerificationState, RouteStatus } from './enums';
 import { CreateRouteDto } from './dto/create-route.dto';
 import { UpdateRouteDto } from './dto/update-route.dto';
 import { UpdateRouteStatusDto } from './dto/update-route-status.dto';
@@ -107,6 +108,9 @@ export class RouteService {
         @InjectRepository(P2pCourierProfile)
         private courierProfileRepo: Repository<P2pCourierProfile>,
 
+        @InjectRepository(P2pCourierRequest)
+        private courierRequestRepo: Repository<P2pCourierRequest>,
+
         private platformSettingsService: PlatformSettingsService,
         private emailService: EmailService,
     ) { }
@@ -142,7 +146,7 @@ export class RouteService {
         if (!profile) return [];
 
         return this.routeRepo.find({
-            where: { courier_profile_id: profile.id },
+            where: { courier_profile_id: profile.id, status: Not(RouteStatus.REMOVED) },
             order: { departureDate: 'ASC' },
             relations: ['courierProfile', 'courierProfile.user'],
         });
@@ -235,7 +239,21 @@ export class RouteService {
         }
 
         route.status = dto.status;
-        return this.routeRepo.save(route);
+        const saved = await this.routeRepo.save(route);
+
+        if (dto.status === RouteStatus.REMOVED) {
+            await this.courierRequestRepo
+                .createQueryBuilder()
+                .update(P2pCourierRequest)
+                .set({ status: CourierRequestStatus.CANCELLED })
+                .where('route_id = :routeId AND status = :pending', {
+                    routeId: id,
+                    pending: CourierRequestStatus.PENDING,
+                })
+                .execute();
+        }
+
+        return saved;
     }
 
     async getRouteFeed(

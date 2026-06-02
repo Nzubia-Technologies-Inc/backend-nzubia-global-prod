@@ -1066,6 +1066,7 @@ export class ShipmentService {
             .innerJoinAndSelect('cr.shipmentRequest', 'shipment')
             .leftJoinAndSelect('cr.seeker', 'seeker')
             .where('route.courier_profile_id = :cpid', { cpid: courierProfile.id })
+            .andWhere('route.status = :routeStatus', { routeStatus: RouteStatus.PUBLISHED })
             .orderBy('cr.created_at', 'DESC')
             .getMany();
     }
