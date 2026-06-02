@@ -138,6 +138,7 @@ export function mapShipmentRequest(s: P2pShipmentRequest) {
         status: s.status,
         match_metadata: s.matchMetadata ?? null,
         chat_thread_id: s.chatThreadId ?? null,
+        pickup_confirmation_code: s.pickupConfirmationCode ?? null,
         proof_of_delivery_urls: s.proofOfDeliveryUrls ?? null,
         delivered_at: isoOrNull(s.deliveredAt),
         completed_at: isoOrNull(s.completedAt),
