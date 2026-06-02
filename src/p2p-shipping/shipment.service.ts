@@ -301,15 +301,29 @@ export class ShipmentService {
     }
 
     /**
-     * Returns OPEN shipment requests whose origin is within 50 miles (≈80.5 km)
-     * of the courier's registered home location.
-     * Couriers without coordinates set see all OPEN requests.
+     * Returns OPEN shipment requests that:
+     *   1. Destination (country + city) matches at least one of the courier's PUBLISHED routes.
+     *   2. Origin is within 50 miles (≈80.5 km) of the courier's registered home location.
+     *
+     * Couriers with no home coordinates set skip the proximity check (condition 2 only).
+     * Couriers with no PUBLISHED routes receive an empty list — they can't carry anything yet.
      */
     async listNearbyOpenShipments(courierId: string): Promise<P2pShipmentRequest[]> {
         const profile = await this.courierProfileRepo.findOne({ where: { user_id: courierId } });
         if (!profile) {
             throw new ForbiddenException('Courier profile not found. Complete your courier application first.');
         }
+
+        const courierRoutes = await this.routeRepo.find({
+            where: { courier_profile_id: profile.id, status: RouteStatus.PUBLISHED },
+        });
+
+        if (!courierRoutes.length) return [];
+
+        const routeDestinations = courierRoutes.map((r) => ({
+            country: r.destinationCountry.toLowerCase(),
+            city: r.destinationCity.toLowerCase(),
+        }));
 
         const open = await this.requestRepo.find({
             where: { status: ShipmentRequestStatus.OPEN },
@@ -321,19 +335,20 @@ export class ShipmentService {
         const homeLng = profile.homeLongitude != null ? Number(profile.homeLongitude) : null;
         const RADIUS_KM = 80.47; // 50 miles
 
-        if (homeLat == null || homeLng == null) {
-            return open;
-        }
-
         return open.filter((req) => {
-            if (req.originLatitude == null || req.originLongitude == null) return true;
-            const dist = haversineKm(
-                homeLat,
-                homeLng,
-                Number(req.originLatitude),
-                Number(req.originLongitude),
+            const destCountry = req.destinationCountry.toLowerCase();
+            const destCity = req.destinationCity.toLowerCase();
+            const hasMatchingRoute = routeDestinations.some(
+                (d) => d.country === destCountry && d.city === destCity,
             );
-            return dist <= RADIUS_KM;
+            if (!hasMatchingRoute) return false;
+
+            if (homeLat == null || homeLng == null) return true;
+            if (req.originLatitude == null || req.originLongitude == null) return true;
+            return (
+                haversineKm(homeLat, homeLng, Number(req.originLatitude), Number(req.originLongitude)) <=
+                RADIUS_KM
+            );
         });
     }
 
