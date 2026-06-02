@@ -49,8 +49,9 @@ export class MessagingGateway implements OnGatewayConnection, OnGatewayDisconnec
     this.logger.log(`Received message in room ${data.roomId}: ${data.message}`);
 
     // Save to DB
+    let saved: Message | null = null;
     try {
-      await this.messageRepo.save({
+      saved = await this.messageRepo.save({
         room_id: data.roomId,
         content: data.message,
         sender_id: data.senderId,
@@ -59,8 +60,13 @@ export class MessagingGateway implements OnGatewayConnection, OnGatewayDisconnec
       this.logger.error(`Failed to save message: ${e.message}`);
     }
 
-    // Broadcast to room
-    this.server.to(data.roomId).emit('newMessage', data);
+    // Broadcast the persisted entity so clients get consistent field names
+    this.server.to(data.roomId).emit('newMessage', saved ?? {
+      room_id: data.roomId,
+      content: data.message,
+      sender_id: data.senderId,
+      created_at: new Date().toISOString(),
+    });
     return 'Message sent';
   }
 

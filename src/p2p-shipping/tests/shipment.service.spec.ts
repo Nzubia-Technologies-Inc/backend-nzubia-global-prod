@@ -1,6 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+    BadRequestException,
+    ForbiddenException,
+    NotFoundException,
+} from '@nestjs/common';
 import { ShipmentService } from '../shipment.service';
 import { P2pShipmentRequest } from '../entities/p2p-shipment-request.entity';
 import { P2pOffer } from '../entities/p2p-offer.entity';
@@ -8,6 +12,7 @@ import { P2pRoute } from '../entities/p2p-route.entity';
 import { P2pCourierProfile } from '../entities/p2p-courier-profile.entity';
 import { P2pComplianceRecord } from '../entities/p2p-compliance-record.entity';
 import { P2pWaiver } from '../entities/p2p-waiver.entity';
+import { P2pCourierRequest } from '../entities/p2p-courier-request.entity';
 import {
     CourierVerificationState,
     ItemCategory,
@@ -19,10 +24,13 @@ import { EmailService } from '../../notifications/email/email.service';
 import { MessagingService } from '../../messaging/messaging.service';
 import { PaymentsService } from '../../payments/payments.service';
 import { PlatformSettingsService } from '../../platform-settings/platform-settings.service';
+import { PushNotificationService } from '../../notifications/push/push-notification.service';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function makeCourierProfile(overrides: Partial<P2pCourierProfile> = {}): P2pCourierProfile {
+function makeCourierProfile(
+    overrides: Partial<P2pCourierProfile> = {},
+): P2pCourierProfile {
     return {
         id: 'profile-1',
         user_id: 'courier-user-1',
@@ -42,11 +50,14 @@ function makeCourierProfile(overrides: Partial<P2pCourierProfile> = {}): P2pCour
     } as P2pCourierProfile;
 }
 
-function makeShipment(overrides: Partial<P2pShipmentRequest> = {}): P2pShipmentRequest {
+function makeShipment(
+    overrides: Partial<P2pShipmentRequest> = {},
+): P2pShipmentRequest {
     return {
         id: 'shipment-1',
         seeker_user_id: 'seeker-1',
         originAddress: '1 Test St',
+        contactPhone: '+15551234567',
         originLatitude: null,
         originLongitude: null,
         destinationCountry: 'US',
@@ -96,7 +107,11 @@ function makeOffer(overrides: Partial<P2pOffer> = {}): P2pOffer {
 function makeRequestRepo(shipment?: P2pShipmentRequest) {
     return {
         create: jest.fn().mockImplementation((dto) => ({ ...dto })),
-        save: jest.fn().mockImplementation((e) => Promise.resolve({ id: 'shipment-new', ...e })),
+        save: jest
+            .fn()
+            .mockImplementation((e) =>
+                Promise.resolve({ id: 'shipment-new', ...e }),
+            ),
         findOne: jest.fn().mockResolvedValue(shipment ?? null),
         find: jest.fn().mockResolvedValue([]),
         update: jest.fn().mockResolvedValue(undefined),
@@ -119,7 +134,11 @@ function makeOfferRepo(offer?: P2pOffer) {
     };
     return {
         create: jest.fn().mockImplementation((dto) => ({ ...dto })),
-        save: jest.fn().mockImplementation((e) => Promise.resolve({ id: 'offer-new', ...e })),
+        save: jest
+            .fn()
+            .mockImplementation((e) =>
+                Promise.resolve({ id: 'offer-new', ...e }),
+            ),
         findOne: jest.fn().mockResolvedValue(offer ?? null),
         createQueryBuilder: jest.fn().mockReturnValue(qb),
     };
@@ -128,7 +147,11 @@ function makeOfferRepo(offer?: P2pOffer) {
 function makeWaiverRepo(waiver?: P2pWaiver) {
     return {
         create: jest.fn().mockImplementation((dto) => ({ ...dto })),
-        save: jest.fn().mockImplementation((e) => Promise.resolve({ id: 'waiver-1', ...e })),
+        save: jest
+            .fn()
+            .mockImplementation((e) =>
+                Promise.resolve({ id: 'waiver-1', ...e }),
+            ),
         findOne: jest.fn().mockResolvedValue(waiver ?? null),
         update: jest.fn().mockResolvedValue(undefined),
     };
@@ -156,8 +179,26 @@ function makeCourierProfileRepo(profile?: P2pCourierProfile) {
 function makeComplianceRepo() {
     return {
         create: jest.fn().mockImplementation((dto) => ({ ...dto })),
-        save: jest.fn().mockImplementation((e) => Promise.resolve({ id: 'compliance-1', ...e })),
+        save: jest
+            .fn()
+            .mockImplementation((e) =>
+                Promise.resolve({ id: 'compliance-1', ...e }),
+            ),
         findOne: jest.fn().mockResolvedValue(null),
+    };
+}
+
+function makeCourierRequestRepo() {
+    return {
+        create: jest.fn().mockImplementation((dto) => ({ ...dto })),
+        save: jest
+            .fn()
+            .mockImplementation((e) =>
+                Promise.resolve({ id: 'courier-request-1', ...e }),
+            ),
+        findOne: jest.fn().mockResolvedValue(null),
+        find: jest.fn().mockResolvedValue([]),
+        update: jest.fn().mockResolvedValue(undefined),
     };
 }
 
@@ -167,10 +208,20 @@ const makePlatformSettings = (prohibitedItems: string[] = []) => ({
     getP2pFeePercent: jest.fn().mockResolvedValue(10),
 });
 
-const makeEmailService = () => ({ sendEmail: jest.fn().mockResolvedValue(undefined) });
-const makeMessagingService = () => ({ createMessage: jest.fn().mockResolvedValue(undefined) });
+const makeEmailService = () => ({
+    sendEmail: jest.fn().mockResolvedValue(undefined),
+});
+const makePushService = () => ({
+    sendToUser: jest.fn().mockResolvedValue(undefined),
+    sendToUsers: jest.fn().mockResolvedValue(undefined),
+});
+const makeMessagingService = () => ({
+    createMessage: jest.fn().mockResolvedValue(undefined),
+});
 const makePaymentsService = () => ({
-    createPaymentIntent: jest.fn().mockResolvedValue({ id: 'pi_test_123', clientSecret: 'secret' }),
+    createPaymentIntent: jest
+        .fn()
+        .mockResolvedValue({ id: 'pi_test_123', clientSecret: 'secret' }),
 });
 
 // ─── Test suite ───────────────────────────────────────────────────────────────
@@ -184,43 +235,69 @@ describe('ShipmentService', () => {
     let courierProfileRepo: ReturnType<typeof makeCourierProfileRepo>;
     let complianceRepo: ReturnType<typeof makeComplianceRepo>;
     let waiverRepo: ReturnType<typeof makeWaiverRepo>;
+    let courierRequestRepo: ReturnType<typeof makeCourierRequestRepo>;
     let platformSettings: ReturnType<typeof makePlatformSettings>;
     let emailService: ReturnType<typeof makeEmailService>;
+    let pushService: ReturnType<typeof makePushService>;
     let messagingService: ReturnType<typeof makeMessagingService>;
     let paymentsService: ReturnType<typeof makePaymentsService>;
 
-    async function buildModule(opts: {
-        shipment?: P2pShipmentRequest;
-        offer?: P2pOffer;
-        route?: P2pRoute;
-        courierProfile?: P2pCourierProfile;
-        waiver?: P2pWaiver;
-        prohibitedItems?: string[];
-    } = {}) {
+    async function buildModule(
+        opts: {
+            shipment?: P2pShipmentRequest;
+            offer?: P2pOffer;
+            route?: P2pRoute;
+            courierProfile?: P2pCourierProfile;
+            waiver?: P2pWaiver;
+            prohibitedItems?: string[];
+        } = {},
+    ) {
         requestRepo = makeRequestRepo(opts.shipment);
         offerRepo = makeOfferRepo(opts.offer);
         routeRepo = makeRouteRepo(opts.route);
         courierProfileRepo = makeCourierProfileRepo(opts.courierProfile);
         complianceRepo = makeComplianceRepo();
         waiverRepo = makeWaiverRepo(opts.waiver);
+        courierRequestRepo = makeCourierRequestRepo();
         platformSettings = makePlatformSettings(opts.prohibitedItems ?? []);
         emailService = makeEmailService();
+        pushService = makePushService();
         messagingService = makeMessagingService();
         paymentsService = makePaymentsService();
 
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 ShipmentService,
-                { provide: getRepositoryToken(P2pShipmentRequest), useValue: requestRepo },
+                {
+                    provide: getRepositoryToken(P2pShipmentRequest),
+                    useValue: requestRepo,
+                },
                 { provide: getRepositoryToken(P2pOffer), useValue: offerRepo },
                 { provide: getRepositoryToken(P2pRoute), useValue: routeRepo },
-                { provide: getRepositoryToken(P2pCourierProfile), useValue: courierProfileRepo },
-                { provide: getRepositoryToken(P2pComplianceRecord), useValue: complianceRepo },
-                { provide: getRepositoryToken(P2pWaiver), useValue: waiverRepo },
+                {
+                    provide: getRepositoryToken(P2pCourierProfile),
+                    useValue: courierProfileRepo,
+                },
+                {
+                    provide: getRepositoryToken(P2pComplianceRecord),
+                    useValue: complianceRepo,
+                },
+                {
+                    provide: getRepositoryToken(P2pWaiver),
+                    useValue: waiverRepo,
+                },
+                {
+                    provide: getRepositoryToken(P2pCourierRequest),
+                    useValue: courierRequestRepo,
+                },
                 { provide: EmailService, useValue: emailService },
+                { provide: PushNotificationService, useValue: pushService },
                 { provide: MessagingService, useValue: messagingService },
                 { provide: PaymentsService, useValue: paymentsService },
-                { provide: PlatformSettingsService, useValue: platformSettings },
+                {
+                    provide: PlatformSettingsService,
+                    useValue: platformSettings,
+                },
             ],
         }).compile();
 
@@ -232,6 +309,7 @@ describe('ShipmentService', () => {
     describe('createRequest', () => {
         const dto = {
             originAddress: '1 Test St',
+            contactPhone: '+15551234567',
             destinationCountry: 'US',
             destinationCity: 'New York',
             itemCategory: ItemCategory.CLOTHING,
@@ -259,20 +337,32 @@ describe('ShipmentService', () => {
 
             const badDto = { ...dto, itemDescription: 'Some drugs and stuff' };
 
-            await expect(service.createRequest('seeker-1', badDto)).rejects.toThrow(BadRequestException);
+            await expect(
+                service.createRequest('seeker-1', badDto),
+            ).rejects.toThrow(BadRequestException);
 
             expect(complianceRepo.save).toHaveBeenCalledTimes(1);
             expect(complianceRepo.create).toHaveBeenCalledWith(
-                expect.objectContaining({ prohibitedItemDetected: true, manualReviewRequired: true }),
+                expect.objectContaining({
+                    prohibitedItemDetected: true,
+                    manualReviewRequired: true,
+                }),
             );
         });
 
         it('flags multiple prohibited terms in the rejection reason', async () => {
-            await buildModule({ prohibitedItems: ['WEAPONS', 'DRUGS', 'EXPLOSIVES'] });
+            await buildModule({
+                prohibitedItems: ['WEAPONS', 'DRUGS', 'EXPLOSIVES'],
+            });
 
-            const badDto = { ...dto, itemDescription: 'sending explosives and drugs' };
+            const badDto = {
+                ...dto,
+                itemDescription: 'sending explosives and drugs',
+            };
 
-            await expect(service.createRequest('seeker-1', badDto)).rejects.toThrow(/DRUGS|EXPLOSIVES/i);
+            await expect(
+                service.createRequest('seeker-1', badDto),
+            ).rejects.toThrow(/DRUGS|EXPLOSIVES/i);
         });
 
         it('saves the request with DRAFT status on clean description', async () => {
@@ -281,7 +371,9 @@ describe('ShipmentService', () => {
             await service.createRequest('seeker-1', dto);
 
             expect(requestRepo.create).toHaveBeenCalledWith(
-                expect.objectContaining({ status: ShipmentRequestStatus.DRAFT }),
+                expect.objectContaining({
+                    status: ShipmentRequestStatus.DRAFT,
+                }),
             );
         });
     });
@@ -290,33 +382,53 @@ describe('ShipmentService', () => {
 
     describe('updateStatus – state machine', () => {
         it('allows DRAFT → OPEN transition', async () => {
-            const shipment = makeShipment({ status: ShipmentRequestStatus.DRAFT });
+            const shipment = makeShipment({
+                status: ShipmentRequestStatus.DRAFT,
+            });
             await buildModule({ shipment });
 
-            requestRepo.save.mockResolvedValue({ ...shipment, status: ShipmentRequestStatus.OPEN });
-
-            const result = await service.updateStatus('seeker-1', 'shipment-1', {
+            requestRepo.save.mockResolvedValue({
+                ...shipment,
                 status: ShipmentRequestStatus.OPEN,
             });
+
+            const result = await service.updateStatus(
+                'seeker-1',
+                'shipment-1',
+                {
+                    status: ShipmentRequestStatus.OPEN,
+                },
+            );
 
             expect(result.status).toBe(ShipmentRequestStatus.OPEN);
         });
 
         it('allows OPEN → MATCHED transition', async () => {
-            const shipment = makeShipment({ status: ShipmentRequestStatus.OPEN });
+            const shipment = makeShipment({
+                status: ShipmentRequestStatus.OPEN,
+            });
             await buildModule({ shipment });
 
-            requestRepo.save.mockResolvedValue({ ...shipment, status: ShipmentRequestStatus.MATCHED });
-
-            const result = await service.updateStatus('seeker-1', 'shipment-1', {
+            requestRepo.save.mockResolvedValue({
+                ...shipment,
                 status: ShipmentRequestStatus.MATCHED,
             });
+
+            const result = await service.updateStatus(
+                'seeker-1',
+                'shipment-1',
+                {
+                    status: ShipmentRequestStatus.MATCHED,
+                },
+            );
 
             expect(result.status).toBe(ShipmentRequestStatus.MATCHED);
         });
 
         it('rejects OPEN → DELIVERED (skipping intermediate states)', async () => {
-            const shipment = makeShipment({ status: ShipmentRequestStatus.OPEN });
+            const shipment = makeShipment({
+                status: ShipmentRequestStatus.OPEN,
+            });
             await buildModule({ shipment });
 
             await expect(
@@ -327,7 +439,9 @@ describe('ShipmentService', () => {
         });
 
         it('rejects DRAFT → DELIVERED transition', async () => {
-            const shipment = makeShipment({ status: ShipmentRequestStatus.DRAFT });
+            const shipment = makeShipment({
+                status: ShipmentRequestStatus.DRAFT,
+            });
             await buildModule({ shipment });
 
             await expect(
@@ -338,7 +452,9 @@ describe('ShipmentService', () => {
         });
 
         it('rejects DELIVERED → OPEN (backwards) transition', async () => {
-            const shipment = makeShipment({ status: ShipmentRequestStatus.DELIVERED });
+            const shipment = makeShipment({
+                status: ShipmentRequestStatus.DELIVERED,
+            });
             await buildModule({ shipment });
 
             await expect(
@@ -349,7 +465,9 @@ describe('ShipmentService', () => {
         });
 
         it('rejects COMPLETED → any transition (terminal state)', async () => {
-            const shipment = makeShipment({ status: ShipmentRequestStatus.COMPLETED });
+            const shipment = makeShipment({
+                status: ShipmentRequestStatus.COMPLETED,
+            });
             await buildModule({ shipment });
 
             await expect(
@@ -376,20 +494,29 @@ describe('ShipmentService', () => {
         it('transitions offer to ACCEPTED and shipment to MATCHED', async () => {
             const offer = makeOffer({
                 status: OfferStatus.PROPOSED,
-                shipmentRequest: makeShipment({ seeker_user_id: 'seeker-1', status: ShipmentRequestStatus.OPEN }),
+                shipmentRequest: makeShipment({
+                    seeker_user_id: 'seeker-1',
+                    status: ShipmentRequestStatus.OPEN,
+                }),
             });
 
             await buildModule({ offer });
 
-            offerRepo.save.mockResolvedValue({ ...offer, status: OfferStatus.ACCEPTED, acceptedAt: new Date() });
+            offerRepo.save.mockResolvedValue({
+                ...offer,
+                status: OfferStatus.ACCEPTED,
+                acceptedAt: new Date(),
+            });
 
             const result = await service.acceptOffer('seeker-1', 'offer-1');
 
-            expect(result.status).toBe(OfferStatus.ACCEPTED);
-            expect(result.acceptedAt).not.toBeNull();
+            expect(result.offer.status).toBe(OfferStatus.ACCEPTED);
+            expect(result.offer.acceptedAt).not.toBeNull();
             expect(requestRepo.update).toHaveBeenCalledWith(
                 offer.shipment_request_id,
-                expect.objectContaining({ status: ShipmentRequestStatus.MATCHED }),
+                expect.objectContaining({
+                    status: ShipmentRequestStatus.MATCHED,
+                }),
             );
         });
 
@@ -408,7 +535,7 @@ describe('ShipmentService', () => {
 
             // Payment intent should have been created for 7500 cents
             expect(paymentsService.createPaymentIntent).toHaveBeenCalledWith(
-                7500,  // 75 * 100
+                7500, // 75 * 100
                 'usd',
                 undefined, // no Connect ID yet
             );
@@ -428,11 +555,15 @@ describe('ShipmentService', () => {
 
             await buildModule({ offer });
 
-            paymentsService.createPaymentIntent.mockRejectedValue(new Error('Stripe unavailable'));
+            paymentsService.createPaymentIntent.mockRejectedValue(
+                new Error('Stripe unavailable'),
+            );
             offerRepo.save.mockImplementation((e) => Promise.resolve({ ...e }));
 
             // Should NOT throw — payment failure is non-blocking
-            await expect(service.acceptOffer('seeker-1', 'offer-1')).resolves.not.toThrow();
+            await expect(
+                service.acceptOffer('seeker-1', 'offer-1'),
+            ).resolves.not.toThrow();
 
             const savedOffer = offerRepo.save.mock.calls[0][0];
             expect(savedOffer.paymentReference).toMatch(/^PENDING_MANUAL_/);
@@ -458,15 +589,21 @@ describe('ShipmentService', () => {
             const alreadyAccepted = makeOffer({ status: OfferStatus.ACCEPTED });
             await buildModule({ offer: alreadyAccepted });
 
-            await expect(service.acceptOffer('seeker-1', 'offer-1')).rejects.toThrow(BadRequestException);
-            await expect(service.acceptOffer('seeker-1', 'offer-1')).rejects.toThrow(/PROPOSED/);
+            await expect(
+                service.acceptOffer('seeker-1', 'offer-1'),
+            ).rejects.toThrow(BadRequestException);
+            await expect(
+                service.acceptOffer('seeker-1', 'offer-1'),
+            ).rejects.toThrow(/PROPOSED/);
         });
 
         it('throws BadRequestException when offer is EXPIRED', async () => {
             const expired = makeOffer({ status: OfferStatus.EXPIRED });
             await buildModule({ offer: expired });
 
-            await expect(service.acceptOffer('seeker-1', 'offer-1')).rejects.toThrow(BadRequestException);
+            await expect(
+                service.acceptOffer('seeker-1', 'offer-1'),
+            ).rejects.toThrow(BadRequestException);
         });
 
         it('throws ForbiddenException when the caller does not own the shipment', async () => {
@@ -476,13 +613,17 @@ describe('ShipmentService', () => {
 
             await buildModule({ offer });
 
-            await expect(service.acceptOffer('wrong-user', 'offer-1')).rejects.toThrow(ForbiddenException);
+            await expect(
+                service.acceptOffer('wrong-user', 'offer-1'),
+            ).rejects.toThrow(ForbiddenException);
         });
 
         it('throws NotFoundException when offer does not exist', async () => {
             await buildModule(); // offerRepo.findOne returns null
 
-            await expect(service.acceptOffer('seeker-1', 'no-offer')).rejects.toThrow(NotFoundException);
+            await expect(
+                service.acceptOffer('seeker-1', 'no-offer'),
+            ).rejects.toThrow(NotFoundException);
         });
     });
 
@@ -493,7 +634,11 @@ describe('ShipmentService', () => {
             const offer = makeOffer({ status: OfferStatus.PROPOSED });
             await buildModule({ offer });
 
-            offerRepo.save.mockResolvedValue({ ...offer, status: OfferStatus.REJECTED, rejectedAt: new Date() });
+            offerRepo.save.mockResolvedValue({
+                ...offer,
+                status: OfferStatus.REJECTED,
+                rejectedAt: new Date(),
+            });
 
             const result = await service.rejectOffer('seeker-1', 'offer-1');
 
@@ -505,7 +650,11 @@ describe('ShipmentService', () => {
             const offer = makeOffer({ status: OfferStatus.PROPOSED });
             await buildModule({ offer });
 
-            offerRepo.save.mockResolvedValue({ ...offer, status: OfferStatus.REJECTED, rejectedAt: new Date() });
+            offerRepo.save.mockResolvedValue({
+                ...offer,
+                status: OfferStatus.REJECTED,
+                rejectedAt: new Date(),
+            });
 
             await service.rejectOffer('seeker-1', 'offer-1');
 
@@ -520,8 +669,12 @@ describe('ShipmentService', () => {
             const offer = makeOffer({ status: OfferStatus.ACCEPTED });
             await buildModule({ offer });
 
-            await expect(service.rejectOffer('seeker-1', 'offer-1')).rejects.toThrow(BadRequestException);
-            await expect(service.rejectOffer('seeker-1', 'offer-1')).rejects.toThrow(/PROPOSED/);
+            await expect(
+                service.rejectOffer('seeker-1', 'offer-1'),
+            ).rejects.toThrow(BadRequestException);
+            await expect(
+                service.rejectOffer('seeker-1', 'offer-1'),
+            ).rejects.toThrow(/PROPOSED/);
         });
 
         it('throws ForbiddenException when caller does not own the shipment', async () => {
@@ -531,13 +684,17 @@ describe('ShipmentService', () => {
 
             await buildModule({ offer });
 
-            await expect(service.rejectOffer('wrong-user', 'offer-1')).rejects.toThrow(ForbiddenException);
+            await expect(
+                service.rejectOffer('wrong-user', 'offer-1'),
+            ).rejects.toThrow(ForbiddenException);
         });
 
         it('throws NotFoundException when offer does not exist', async () => {
             await buildModule(); // offerRepo.findOne returns null
 
-            await expect(service.rejectOffer('seeker-1', 'no-offer')).rejects.toThrow(NotFoundException);
+            await expect(
+                service.rejectOffer('seeker-1', 'no-offer'),
+            ).rejects.toThrow(NotFoundException);
         });
     });
 
@@ -546,12 +703,18 @@ describe('ShipmentService', () => {
     describe('recordHandoff', () => {
         it('stores the chatThreadId on the shipment request', async () => {
             // First findOne (inside updateStatus → getRequest) must return RESERVED
-            const shipment = makeShipment({ status: ShipmentRequestStatus.RESERVED });
+            const shipment = makeShipment({
+                status: ShipmentRequestStatus.RESERVED,
+            });
             await buildModule({ shipment }); // sets default findOne → RESERVED
 
-            requestRepo.save.mockResolvedValue({ ...shipment, status: ShipmentRequestStatus.HANDOFF_PENDING });
+            requestRepo.save.mockResolvedValue({
+                ...shipment,
+                status: ShipmentRequestStatus.HANDOFF_PENDING,
+            });
             // Second findOne call (notification seeker lookup) — no email needed for this assertion
-            requestRepo.findOne.mockResolvedValueOnce(shipment) // getRequest call
+            requestRepo.findOne
+                .mockResolvedValueOnce(shipment) // getRequest call
                 .mockResolvedValue({ ...shipment, seeker: null });
             offerRepo.findOne.mockResolvedValue(null);
 
@@ -564,11 +727,18 @@ describe('ShipmentService', () => {
         });
 
         it('creates a messaging thread using the shipment ID as room', async () => {
-            const shipment = makeShipment({ status: ShipmentRequestStatus.RESERVED });
+            const shipment = makeShipment({
+                status: ShipmentRequestStatus.RESERVED,
+            });
             await buildModule({ shipment });
 
-            requestRepo.save.mockResolvedValue({ ...shipment, status: ShipmentRequestStatus.HANDOFF_PENDING });
-            requestRepo.findOne.mockResolvedValueOnce(shipment).mockResolvedValue({ ...shipment, seeker: null });
+            requestRepo.save.mockResolvedValue({
+                ...shipment,
+                status: ShipmentRequestStatus.HANDOFF_PENDING,
+            });
+            requestRepo.findOne
+                .mockResolvedValueOnce(shipment)
+                .mockResolvedValue({ ...shipment, seeker: null });
             offerRepo.findOne.mockResolvedValue(null);
 
             await service.recordHandoff('seeker-1', 'shipment-1');
@@ -581,14 +751,22 @@ describe('ShipmentService', () => {
         });
 
         it('sends handoff reminder emails to both seeker and courier', async () => {
-            const shipment = makeShipment({ status: ShipmentRequestStatus.RESERVED });
+            const shipment = makeShipment({
+                status: ShipmentRequestStatus.RESERVED,
+            });
             await buildModule({ shipment });
 
-            requestRepo.save.mockResolvedValue({ ...shipment, status: ShipmentRequestStatus.HANDOFF_PENDING });
+            requestRepo.save.mockResolvedValue({
+                ...shipment,
+                status: ShipmentRequestStatus.HANDOFF_PENDING,
+            });
             // First call = getRequest (RESERVED); second = notification lookup (with seeker email)
             requestRepo.findOne
                 .mockResolvedValueOnce(shipment)
-                .mockResolvedValue({ ...shipment, seeker: { email: 'seeker@example.com' } });
+                .mockResolvedValue({
+                    ...shipment,
+                    seeker: { email: 'seeker@example.com' },
+                });
 
             const offerWithCourier = makeOffer({
                 status: OfferStatus.ACCEPTED,
@@ -602,7 +780,9 @@ describe('ShipmentService', () => {
 
             await service.recordHandoff('seeker-1', 'shipment-1');
 
-            const emailCalls = emailService.sendEmail.mock.calls.map((c) => c[0]);
+            const emailCalls = emailService.sendEmail.mock.calls.map(
+                (c) => c[0],
+            );
             expect(emailCalls).toContain('seeker@example.com');
             expect(emailCalls).toContain('courier@example.com');
         });
@@ -612,7 +792,9 @@ describe('ShipmentService', () => {
 
     describe('confirmDelivery', () => {
         it('sends delivery confirmation to both seeker and courier', async () => {
-            const shipment = makeShipment({ status: ShipmentRequestStatus.IN_TRANSIT });
+            const shipment = makeShipment({
+                status: ShipmentRequestStatus.IN_TRANSIT,
+            });
             const courierProfile = makeCourierProfile();
             const offerWithCourier = makeOffer({
                 status: OfferStatus.ACCEPTED,
@@ -624,14 +806,21 @@ describe('ShipmentService', () => {
                 } as any,
             });
 
-            await buildModule({ shipment, courierProfile, offer: offerWithCourier });
+            await buildModule({
+                shipment,
+                courierProfile,
+                offer: offerWithCourier,
+            });
 
             // getRequestAsCourier: courierProfileRepo already returns courierProfile via buildModule.
             // offerRepo qb getOne returns offerWithCourier (set via buildModule offer option).
             // requestRepo.findOne: first call returns shipment (for getRequestAsCourier), second returns with seeker.
             requestRepo.findOne
                 .mockResolvedValueOnce(shipment)
-                .mockResolvedValue({ ...shipment, seeker: { email: 'seeker@example.com' } });
+                .mockResolvedValue({
+                    ...shipment,
+                    seeker: { email: 'seeker@example.com' },
+                });
 
             requestRepo.update.mockResolvedValue(undefined);
 
@@ -640,7 +829,9 @@ describe('ShipmentService', () => {
 
             await service.confirmDelivery('courier-user-1', 'shipment-1', {});
 
-            const emailCalls = emailService.sendEmail.mock.calls.map((c) => c[0]);
+            const emailCalls = emailService.sendEmail.mock.calls.map(
+                (c) => c[0],
+            );
             expect(emailCalls).toContain('seeker@example.com');
             expect(emailCalls).toContain('courier@example.com');
         });

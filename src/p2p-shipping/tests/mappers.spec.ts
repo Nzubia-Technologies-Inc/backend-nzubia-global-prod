@@ -54,7 +54,12 @@ describe('P2P response mappers', () => {
         expect(out).toEqual({
             id: 'cp-1',
             user_id: 'user-1',
-            user: { id: 'user-1', email: 'a@b.c', full_name: null },
+            user: {
+                id: 'user-1',
+                email: 'a@b.c',
+                full_name: null,
+                phone: null,
+            },
             verification_state: 'ACTIVE',
             rating: 4.5,
             is_active: true,
@@ -171,8 +176,13 @@ describe('P2P response mappers', () => {
         const out = mapShipmentRequest({
             id: 's1',
             seeker_user_id: 'user-1',
-            seeker: { id: 'user-1', email: 'a@b.c' } as any,
+            seeker: {
+                id: 'user-1',
+                email: 'a@b.c',
+                phone: '+15551234567',
+            } as any,
             originAddress: '22 Market St',
+            contactPhone: '+15557654321',
             originLatitude: 5.5,
             originLongitude: -0.2,
             destinationCountry: 'US',
@@ -192,12 +202,14 @@ describe('P2P response mappers', () => {
 
         expect(out.seeker_user_id).toBe('user-1');
         expect(out.origin_address).toBe('22 Market St');
+        expect(out.contact_phone).toBe('+15557654321');
         expect(out.destination_country).toBe('US');
         expect(out.item_category).toBe('CLOTHING');
         expect(out.weight_kg).toBe(2);
         expect(out.declared_value_usd).toBe(120);
         expect(out.dimensions_cm).toEqual({ length: 10, width: 5, height: 3 });
         expect(out.status).toBe('OPEN');
+        expect(out.seeker.phone).toBe('+15551234567');
     });
 
     it('mapOffer exposes amount and timestamps', () => {
@@ -254,7 +266,10 @@ describe('P2P response mappers', () => {
     });
 
     it('mapComplianceStatus and mapRules flatten to snake_case', () => {
-        const status = mapComplianceStatus({ record: null, waiverStatus: 'ACCEPTED' });
+        const status = mapComplianceStatus({
+            record: null,
+            waiverStatus: 'ACCEPTED',
+        });
         expect(status.record).toBeNull();
         expect(status.waiver_status).toBe('ACCEPTED');
 

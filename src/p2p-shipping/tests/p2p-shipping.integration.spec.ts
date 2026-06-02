@@ -128,7 +128,8 @@ describe('P2P Shipping – full lifecycle integration test', () => {
                         dropSchema: true,
                         logging: false,
                     }),
-                    dataSourceFactory: (options) => createPatchedDataSource(options),
+                    dataSourceFactory: (options) =>
+                        createPatchedDataSource(options),
                 }),
                 TypeOrmModule.forFeature(ALL_ENTITIES),
             ],
@@ -144,16 +145,23 @@ describe('P2P Shipping – full lifecycle integration test', () => {
                 // Stub out services that call external infrastructure
                 {
                     provide: EmailService,
-                    useValue: { sendEmail: jest.fn().mockResolvedValue(undefined) },
+                    useValue: {
+                        sendEmail: jest.fn().mockResolvedValue(undefined),
+                    },
                 },
                 {
                     provide: MessagingService,
-                    useValue: { createMessage: jest.fn().mockResolvedValue(undefined) },
+                    useValue: {
+                        createMessage: jest.fn().mockResolvedValue(undefined),
+                    },
                 },
                 {
                     provide: PaymentsService,
                     useValue: {
-                        createPaymentIntent: jest.fn().mockResolvedValue({ id: 'pi_test_stub', clientSecret: 'cs_test' }),
+                        createPaymentIntent: jest.fn().mockResolvedValue({
+                            id: 'pi_test_stub',
+                            clientSecret: 'cs_test',
+                        }),
                     },
                 },
             ],
@@ -198,13 +206,18 @@ describe('P2P Shipping – full lifecycle integration test', () => {
         const seekerUser = await createUser('seeker@integration.test');
 
         // 1. Apply as courier (creates DRAFT profile) ────────────────────────
-        const draftProfile = await courierService.applyAsCourier(courierUser.id, {
-            serviceRadiusKm: 50,
-            homeLatitude: 5.6037,
-            homeLongitude: -0.187,
-        });
+        const draftProfile = await courierService.applyAsCourier(
+            courierUser.id,
+            {
+                serviceRadiusKm: 50,
+                homeLatitude: 5.6037,
+                homeLongitude: -0.187,
+            },
+        );
 
-        expect(draftProfile.verificationState).toBe(CourierVerificationState.DRAFT);
+        expect(draftProfile.verificationState).toBe(
+            CourierVerificationState.DRAFT,
+        );
         expect(Boolean(draftProfile.isActive)).toBe(false);
 
         // Simulate admin approval
@@ -233,6 +246,7 @@ describe('P2P Shipping – full lifecycle integration test', () => {
         // 3. Create and open shipment request ────────────────────────────────
         const shipment = await shipmentService.createRequest(seekerUser.id, {
             originAddress: '22 Market Street, London',
+            contactPhone: '+15551234567',
             destinationCountry: 'US',
             destinationCity: 'New York',
             itemCategory: ItemCategory.CLOTHING,
@@ -244,40 +258,57 @@ describe('P2P Shipping – full lifecycle integration test', () => {
         expect(shipment.status).toBe(ShipmentRequestStatus.DRAFT);
 
         // Compliance record is created alongside
-        const complianceStatus = await complianceService.getComplianceStatus(shipment.id);
+        const complianceStatus = await complianceService.getComplianceStatus(
+            shipment.id,
+        );
         expect(complianceStatus.record).not.toBeNull();
-        expect(Boolean(complianceStatus.record!.prohibitedItemDetected)).toBe(false);
+        expect(Boolean(complianceStatus.record!.prohibitedItemDetected)).toBe(
+            false,
+        );
 
         await shipmentService.updateStatus(seekerUser.id, shipment.id, {
             status: ShipmentRequestStatus.OPEN,
         });
 
         // 4. Courier creates an offer ─────────────────────────────────────────
-        const offer = await shipmentService.createOffer(courierUser.id, shipment.id, {
-            routeId: route.id,
-            offerAmountUsd: 45,
-        });
+        const offer = await shipmentService.createOffer(
+            courierUser.id,
+            shipment.id,
+            {
+                routeId: route.id,
+                offerAmountUsd: 45,
+            },
+        );
 
         expect(offer.status).toBe(OfferStatus.PROPOSED);
 
         // 5. Seeker accepts the offer  →  OPEN → MATCHED ─────────────────────
-        const acceptedOffer = await shipmentService.acceptOffer(seekerUser.id, offer.id);
+        const acceptedOffer = await shipmentService.acceptOffer(
+            seekerUser.id,
+            offer.id,
+        );
 
         expect(acceptedOffer.status).toBe(OfferStatus.ACCEPTED);
         expect(acceptedOffer.acceptedAt).not.toBeNull();
 
-        const matchedShipment = await shipmentRepo.findOne({ where: { id: shipment.id } });
+        const matchedShipment = await shipmentRepo.findOne({
+            where: { id: shipment.id },
+        });
         expect(matchedShipment!.status).toBe(ShipmentRequestStatus.MATCHED);
 
         // 6. Seeker accepts the compliance waiver ────────────────────────────
-        const waiver = await complianceService.acceptWaiver(seekerUser.id, shipment.id, {
-            acknowledgedFlags: [
-                'NO_PROHIBITED_ITEMS',
-                'ACCURATE_VALUE_DECLARED',
-                'CUSTOMS_RESPONSIBILITY',
-                'MARKETPLACE_DISCLAIMER',
-            ],
-        });
+        const waiver = await complianceService.acceptWaiver(
+            seekerUser.id,
+            shipment.id,
+            {
+                acknowledgedFlags: [
+                    'NO_PROHIBITED_ITEMS',
+                    'ACCURATE_VALUE_DECLARED',
+                    'CUSTOMS_RESPONSIBILITY',
+                    'MARKETPLACE_DISCLAIMER',
+                ],
+            },
+        );
 
         expect(waiver.status).toBe(WaiverStatus.ACCEPTED);
         expect(waiver.termsVersion).toBeTruthy();
@@ -293,11 +324,17 @@ describe('P2P Shipping – full lifecycle integration test', () => {
             status: ShipmentRequestStatus.IN_TRANSIT,
         });
 
-        const deliveredShipment = await shipmentService.confirmDelivery(courierUser.id, shipment.id, {});
+        const deliveredShipment = await shipmentService.confirmDelivery(
+            courierUser.id,
+            shipment.id,
+            {},
+        );
         expect(deliveredShipment.status).toBe(ShipmentRequestStatus.DELIVERED);
 
         // 8. Verify persisted status ──────────────────────────────────────────
-        const finalRecord = await shipmentRepo.findOne({ where: { id: shipment.id } });
+        const finalRecord = await shipmentRepo.findOne({
+            where: { id: shipment.id },
+        });
         expect(finalRecord!.status).toBe(ShipmentRequestStatus.DELIVERED);
     }, 20_000);
 
@@ -306,7 +343,9 @@ describe('P2P Shipping – full lifecycle integration test', () => {
     it('applyAsCourier twice for the same user throws a conflict error', async () => {
         const user = await createUser('double-apply@integration.test');
         await courierService.applyAsCourier(user.id, {});
-        await expect(courierService.applyAsCourier(user.id, {})).rejects.toThrow(/already exists/i);
+        await expect(
+            courierService.applyAsCourier(user.id, {}),
+        ).rejects.toThrow(/already exists/i);
     }, 15_000);
 
     it('createRequest with a prohibited item saves a flagged compliance record and throws', async () => {
@@ -315,6 +354,7 @@ describe('P2P Shipping – full lifecycle integration test', () => {
         await expect(
             shipmentService.createRequest(user.id, {
                 originAddress: '1 Main St',
+                contactPhone: '+15551234567',
                 destinationCountry: 'US',
                 destinationCity: 'New York',
                 itemCategory: ItemCategory.OTHER,
@@ -326,8 +366,12 @@ describe('P2P Shipping – full lifecycle integration test', () => {
     }, 15_000);
 
     it('acceptOffer on an already-accepted offer throws BadRequestException', async () => {
-        const seekerUser = await createUser('double-accept-seeker@integration.test');
-        const courierUser = await createUser('double-accept-courier@integration.test');
+        const seekerUser = await createUser(
+            'double-accept-seeker@integration.test',
+        );
+        const courierUser = await createUser(
+            'double-accept-courier@integration.test',
+        );
 
         const cp = await courierProfileRepo.save(
             courierProfileRepo.create({
@@ -355,6 +399,7 @@ describe('P2P Shipping – full lifecycle integration test', () => {
             shipmentRepo.create({
                 seeker_user_id: seekerUser.id,
                 originAddress: '1 St',
+                contactPhone: '+15551234567',
                 destinationCountry: 'US',
                 destinationCity: 'NYC',
                 itemCategory: ItemCategory.DOCUMENTS,
@@ -386,6 +431,7 @@ describe('P2P Shipping – full lifecycle integration test', () => {
             shipmentRepo.create({
                 seeker_user_id: user.id,
                 originAddress: '1 St',
+                contactPhone: '+15551234567',
                 destinationCountry: 'US',
                 destinationCity: 'NYC',
                 itemCategory: ItemCategory.DOCUMENTS,

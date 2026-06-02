@@ -16,6 +16,7 @@ function makeShipment(id = 'shipment-1'): P2pShipmentRequest {
         id,
         seeker_user_id: 'user-1',
         originAddress: '1 Test St',
+        contactPhone: '+15551234567',
         originLatitude: null,
         originLongitude: null,
         destinationCountry: 'US',
@@ -56,7 +57,9 @@ function makeWaiver(overrides: Partial<P2pWaiver> = {}): P2pWaiver {
 function makeComplianceRepo() {
     return {
         findOne: jest.fn().mockResolvedValue(null),
-        create: jest.fn().mockImplementation((dto) => ({ id: 'compliance-1', ...dto })),
+        create: jest
+            .fn()
+            .mockImplementation((dto) => ({ id: 'compliance-1', ...dto })),
         save: jest.fn().mockImplementation((e) => Promise.resolve(e)),
     };
 }
@@ -64,8 +67,12 @@ function makeComplianceRepo() {
 function makeWaiverRepo(existingWaiver?: P2pWaiver) {
     return {
         findOne: jest.fn().mockResolvedValue(existingWaiver ?? null),
-        find: jest.fn().mockResolvedValue(existingWaiver ? [existingWaiver] : []),
-        create: jest.fn().mockImplementation((dto) => ({ id: 'waiver-new', ...dto })),
+        find: jest
+            .fn()
+            .mockResolvedValue(existingWaiver ? [existingWaiver] : []),
+        create: jest
+            .fn()
+            .mockImplementation((dto) => ({ id: 'waiver-new', ...dto })),
         save: jest.fn().mockImplementation((e) => Promise.resolve(e)),
         update: jest.fn().mockResolvedValue(undefined),
     };
@@ -77,13 +84,18 @@ function makeRequestRepo(shipment?: P2pShipmentRequest) {
     };
 }
 
-const makePlatformSettings = (waiverText = 'Test waiver text', version = '1.0') => ({
+const makePlatformSettings = (
+    waiverText = 'Test waiver text',
+    version = '1.0',
+) => ({
     getP2pWaiverText: jest.fn().mockResolvedValue(waiverText),
     getP2pWaiverVersion: jest.fn().mockResolvedValue(version),
     getP2pFeePercent: jest.fn().mockResolvedValue(10),
     getP2pDefaultRadiusKm: jest.fn().mockResolvedValue(50),
     getP2pProhibitedItems: jest.fn().mockResolvedValue(['WEAPONS', 'DRUGS']),
-    getP2pRestrictedCategories: jest.fn().mockResolvedValue(['DOCUMENTS', 'CLOTHING', 'ELECTRONICS', 'OTHER']),
+    getP2pRestrictedCategories: jest
+        .fn()
+        .mockResolvedValue(['DOCUMENTS', 'CLOTHING', 'ELECTRONICS', 'OTHER']),
     getP2pMaxDeclaredValueUsd: jest.fn().mockResolvedValue(5000),
     getP2pMaxWeightKg: jest.fn().mockResolvedValue(50),
 });
@@ -106,12 +118,14 @@ describe('ComplianceService', () => {
     let requestRepo: ReturnType<typeof makeRequestRepo>;
     let platformSettings: ReturnType<typeof makePlatformSettings>;
 
-    async function buildModule(opts: {
-        shipment?: P2pShipmentRequest;
-        existingWaiver?: P2pWaiver;
-        waiverText?: string;
-        waiverVersion?: string;
-    } = {}) {
+    async function buildModule(
+        opts: {
+            shipment?: P2pShipmentRequest;
+            existingWaiver?: P2pWaiver;
+            waiverText?: string;
+            waiverVersion?: string;
+        } = {},
+    ) {
         complianceRepo = makeComplianceRepo();
         waiverRepo = makeWaiverRepo(opts.existingWaiver);
         requestRepo = makeRequestRepo(opts.shipment ?? makeShipment());
@@ -123,10 +137,22 @@ describe('ComplianceService', () => {
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 ComplianceService,
-                { provide: getRepositoryToken(P2pComplianceRecord), useValue: complianceRepo },
-                { provide: getRepositoryToken(P2pWaiver), useValue: waiverRepo },
-                { provide: getRepositoryToken(P2pShipmentRequest), useValue: requestRepo },
-                { provide: PlatformSettingsService, useValue: platformSettings },
+                {
+                    provide: getRepositoryToken(P2pComplianceRecord),
+                    useValue: complianceRepo,
+                },
+                {
+                    provide: getRepositoryToken(P2pWaiver),
+                    useValue: waiverRepo,
+                },
+                {
+                    provide: getRepositoryToken(P2pShipmentRequest),
+                    useValue: requestRepo,
+                },
+                {
+                    provide: PlatformSettingsService,
+                    useValue: platformSettings,
+                },
                 { provide: DocumentsService, useValue: makeDocumentsService() },
             ],
         }).compile();
@@ -149,7 +175,11 @@ describe('ComplianceService', () => {
         it('creates a waiver record with ACCEPTED status', async () => {
             await buildModule();
 
-            const result = await service.acceptWaiver('user-1', 'shipment-1', dto);
+            const result = await service.acceptWaiver(
+                'user-1',
+                'shipment-1',
+                dto,
+            );
 
             expect(waiverRepo.create).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -165,17 +195,27 @@ describe('ComplianceService', () => {
         it('stores the current platform terms version on the waiver', async () => {
             await buildModule({ waiverVersion: '2.5' });
 
-            const result = await service.acceptWaiver('user-1', 'shipment-1', dto);
+            const result = await service.acceptWaiver(
+                'user-1',
+                'shipment-1',
+                dto,
+            );
 
             expect(result.termsVersion).toBe('2.5');
         });
 
         it('expires existing waiver(s) before creating a new one when called twice', async () => {
-            const existingWaiver = makeWaiver({ status: WaiverStatus.ACCEPTED });
+            const existingWaiver = makeWaiver({
+                status: WaiverStatus.ACCEPTED,
+            });
             await buildModule({ existingWaiver });
 
             // First call created in prior state; now calling again
-            const result = await service.acceptWaiver('user-1', 'shipment-1', dto);
+            const result = await service.acceptWaiver(
+                'user-1',
+                'shipment-1',
+                dto,
+            );
 
             // Old waivers should be expired
             expect(waiverRepo.update).toHaveBeenCalledWith(
@@ -191,9 +231,9 @@ describe('ComplianceService', () => {
             await buildModule({ shipment: undefined });
             requestRepo.findOne.mockResolvedValue(null);
 
-            await expect(service.acceptWaiver('user-1', 'no-such-shipment', dto)).rejects.toThrow(
-                NotFoundException,
-            );
+            await expect(
+                service.acceptWaiver('user-1', 'no-such-shipment', dto),
+            ).rejects.toThrow(NotFoundException);
         });
     });
 
@@ -201,7 +241,8 @@ describe('ComplianceService', () => {
 
     describe('previewWaiver', () => {
         it('returns the waiver text stored in platform settings', async () => {
-            const waiverText = 'You agree not to ship prohibited items and accept customs responsibility.';
+            const waiverText =
+                'You agree not to ship prohibited items and accept customs responsibility.';
             await buildModule({ waiverText });
 
             const result = await service.previewWaiver('shipment-1');
@@ -238,7 +279,9 @@ describe('ComplianceService', () => {
             await buildModule({ shipment: undefined });
             requestRepo.findOne.mockResolvedValue(null);
 
-            await expect(service.previewWaiver('no-such-shipment')).rejects.toThrow(NotFoundException);
+            await expect(
+                service.previewWaiver('no-such-shipment'),
+            ).rejects.toThrow(NotFoundException);
         });
     });
 

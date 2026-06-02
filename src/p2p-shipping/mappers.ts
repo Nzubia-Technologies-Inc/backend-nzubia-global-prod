@@ -37,6 +37,7 @@ function userSummary(user: User | null | undefined) {
         id: user.id,
         email: user.email ?? null,
         full_name: (user as any).full_name ?? null,
+        phone: user.phone ?? null,
     };
 }
 
@@ -91,7 +92,9 @@ export function mapRoute(r: P2pRoute) {
     return {
         id: r.id,
         courier_profile_id: r.courier_profile_id,
-        courier_profile: r.courierProfile ? mapCourierProfile(r.courierProfile) : null,
+        courier_profile: r.courierProfile
+            ? mapCourierProfile(r.courierProfile)
+            : null,
         destination_country: r.destinationCountry,
         destination_city: r.destinationCity,
         departure_date: isoOrNull(r.departureDate),
