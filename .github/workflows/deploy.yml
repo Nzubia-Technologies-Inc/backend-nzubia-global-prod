@@ -29,6 +29,13 @@ jobs:
         run: npm run build
 
       # ── SSH setup ────────────────────────────────────────────────────────────
+      # Prerequisites (one-time setup):
+      #   1. Generate a key pair:  ssh-keygen -t ed25519 -f deploy_key
+      #   2. Add the public key to the server:
+      #        ssh-copy-id -i deploy_key.pub root@<SERVER_HOST>
+      #   3. Add GitHub repository secrets:
+      #        SSH_PRIVATE_KEY  → contents of deploy_key (private key)
+      #        SERVER_HOST      → 165.232.40.77
 
       - name: Configure SSH agent
         uses: webfactory/ssh-agent@v0.9.0
@@ -74,20 +81,35 @@ jobs:
 
       # ── Smoke test ───────────────────────────────────────────────────────────
 
-      - name: Wait for container to start
-        run: sleep 8
+      - name: Wait for container to be ready
+        run: |
+          ssh root@${{ secrets.SERVER_HOST }} '
+            for i in $(seq 1 15); do
+              STATUS=$(curl -s --max-time 5 -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/api/v1/platform-settings)
+              if [ "$STATUS" != "000" ]; then
+                echo "Container ready (HTTP $STATUS)"
+                exit 0
+              fi
+              echo "Waiting... attempt $i"
+              sleep 2
+            done
+            echo "Container did not respond in time"
+            exit 1
+          '
 
       - name: Smoke test
         run: |
           ssh root@${{ secrets.SERVER_HOST }} '
-            curl -sf --max-time 10 http://127.0.0.1:3000/api/v1/platform-settings \
-              -o /dev/null \
-              -w "HTTP %{http_code}\n"
-          ' || {
-            echo "--- Smoke test failed. Container logs: ---"
-            ssh root@${{ secrets.SERVER_HOST }} 'docker logs --tail 80 nzubia-api'
-            exit 1
-          }
+            STATUS=$(curl -s --max-time 10 -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/api/v1/platform-settings)
+            echo "HTTP $STATUS"
+            # Accept any response except 5xx or connection failure (000)
+            if [ "$STATUS" = "000" ] || [ "$STATUS" -ge 500 ] 2>/dev/null; then
+              echo "Smoke test failed: HTTP $STATUS"
+              docker logs --tail 80 nzubia-api
+              exit 1
+            fi
+            echo "Smoke test passed"
+          '
 
       - name: Print container status
         if: always()

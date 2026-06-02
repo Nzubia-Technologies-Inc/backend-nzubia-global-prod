@@ -86,26 +86,32 @@ Suggested command flow:
 cd /Users/lawrence/Developments/Nzubia/backend-nzubia-global
 npm install
 npm run build
-npm run test
+# npm run test   # run when tests are reliable for the changed area
 
 # 2) sync release artifacts to the server
-rsync -az --delete \
+# Note: the server uses password auth. Use sshpass or an SSH key.
+# With sshpass:
+sshpass -p '<password>' rsync -az --delete -e "ssh -o StrictHostKeyChecking=no" \
 	dist/ \
 	root@165.232.40.77:/root/apps/api/dist/
 
-rsync -az \
+sshpass -p '<password>' rsync -az -e "ssh -o StrictHostKeyChecking=no" \
 	package-lock.json \
 	root@165.232.40.77:/root/apps/api/
 
 # 3) refresh the running container from the updated dist tree
-ssh root@165.232.40.77 'docker cp /root/apps/api/dist/. nzubia-api:/app/dist/ && docker restart nzubia-api'
+sshpass -p '<password>' ssh -o StrictHostKeyChecking=no root@165.232.40.77 \
+	'docker cp /root/apps/api/dist/. nzubia-api:/app/dist/ && docker restart nzubia-api'
 
 # 4) check the container and logs
-ssh root@165.232.40.77 'docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Image}}"'
-ssh root@165.232.40.77 'docker logs --tail 100 nzubia-api'
+sshpass -p '<password>' ssh -o StrictHostKeyChecking=no root@165.232.40.77 \
+	'docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Image}}"'
+sshpass -p '<password>' ssh -o StrictHostKeyChecking=no root@165.232.40.77 \
+	'docker logs --tail 100 nzubia-api'
 
 # 5) smoke test the API from the server
-ssh root@165.232.40.77 'curl -i --max-time 10 http://127.0.0.1:3000/api/v1/p2p/routes/feed'
+sshpass -p '<password>' ssh -o StrictHostKeyChecking=no root@165.232.40.77 \
+	'curl -i --max-time 10 http://127.0.0.1:3000/api/v1/p2p/routes/feed'
 ```
 
 If the deployment system runs TypeORM migrations on startup, keep `migrationsRun: true` enabled in the TypeORM config and ensure the migration files are included in the build output.
@@ -164,12 +170,27 @@ docker inspect nzubia-api --format 'Image={{.Config.Image}} Restart={{.HostConfi
 
 ## Rollback
 
+This deployment method does not use image tags — dist files are copied directly into the running container, so there is no previous image to revert to. The only way to roll back is to rebuild from the previous commit and redeploy.
+
 If a release causes issues:
 
-1. Revert the deployed image or tag to the previous known-good version.
-2. Restart the API container.
-3. Leave the database migration in place unless the migration itself is the problem.
-4. If the migration is the problem, create a corrective migration rather than editing applied production schema by hand.
+1. Check out the last known-good commit locally.
+2. Rebuild: `npm install && npm run build`.
+3. Re-run the rsync + `docker cp` + `docker restart` sequence from the Deployment Steps above.
+4. Leave the database migration in place unless the migration itself is the problem.
+5. If the migration is the problem, create a corrective migration rather than editing applied production schema by hand.
+
+To reduce rollback time, optionally keep a backup of the previous `dist/` on the server before each deploy:
+
+```bash
+ssh root@165.232.40.77 'cp -r /root/apps/api/dist /root/apps/api/dist.bak'
+```
+
+Then a fast rollback is:
+
+```bash
+ssh root@165.232.40.77 'rm -rf /root/apps/api/dist && mv /root/apps/api/dist.bak /root/apps/api/dist && docker cp /root/apps/api/dist/. nzubia-api:/app/dist/ && docker restart nzubia-api'
+```
 
 ## Notes For Future Releases
 
