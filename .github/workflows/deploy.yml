@@ -29,59 +29,41 @@ jobs:
         run: npm run build
 
       # ── SSH setup ────────────────────────────────────────────────────────────
-      # Prerequisites (one-time setup):
-      #   1. Generate a key pair:  ssh-keygen -t ed25519 -f deploy_key
-      #   2. Add the public key to the server:
-      #        ssh-copy-id -i deploy_key.pub root@<SERVER_HOST>
-      #   3. Add GitHub repository secrets:
-      #        SSH_PRIVATE_KEY  → contents of deploy_key (private key)
-      #        SERVER_HOST      → 165.232.40.77
 
-      - name: Configure SSH agent
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-
-      - name: Configure SSH options
+      - name: Setup SSH key
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          echo "StrictHostKeyChecking no" >> ~/.ssh/config
-          echo "UserKnownHostsFile /dev/null" >> ~/.ssh/config
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/nzubia_deploy_key
+          chmod 600 ~/.ssh/nzubia_deploy_key
+          printf "Host *\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n  IdentityFile ~/.ssh/nzubia_deploy_key\n" > ~/.ssh/config
           chmod 600 ~/.ssh/config
 
-      - name: Ensure server release directory exists
-        run: |
-          ssh root@${{ secrets.SERVER_HOST }} 'mkdir -p /root/apps/api'
-
       # ── Sync artifacts ───────────────────────────────────────────────────────
-      # Keep the server release root minimal: only dist/ and package-lock.json.
-      # The running container is refreshed from /root/apps/api/dist after sync.
+
+      - name: Ensure server release directory exists
+        run: ssh root@${{ secrets.SERVER_HOST }} 'mkdir -p /root/apps/api'
 
       - name: Sync dist to server
         run: |
           rsync -az --delete \
-            -e "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
+            -e "ssh -i ~/.ssh/nzubia_deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
             dist/ \
             root@${{ secrets.SERVER_HOST }}:/root/apps/api/dist/
 
       - name: Sync package lock
         run: |
           rsync -az \
-            -e "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
+            -e "ssh -i ~/.ssh/nzubia_deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
             package-lock.json \
             root@${{ secrets.SERVER_HOST }}:/root/apps/api/
 
       # ── Refresh running container ────────────────────────────────────────────
 
-      - name: Copy dist into container
+      - name: Copy dist into container and restart
         run: |
           ssh root@${{ secrets.SERVER_HOST }} \
-            'docker cp /root/apps/api/dist/. nzubia-api:/app/dist/'
-
-      - name: Restart nzubia-api container
-        run: |
-          ssh root@${{ secrets.SERVER_HOST }} 'docker restart nzubia-api'
+            'docker cp /root/apps/api/dist/. nzubia-api:/app/dist/ && docker restart nzubia-api'
 
       # ── Smoke test ───────────────────────────────────────────────────────────
 
