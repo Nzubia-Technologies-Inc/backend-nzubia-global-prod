@@ -9,6 +9,11 @@ jobs:
     name: Build, Test & Deploy
     runs-on: ubuntu-latest
 
+    env:
+      SSH_HOST: ${{ secrets.SERVER_HOST }}
+      SSH_KEY: ~/.ssh/nzubia_deploy_key
+      SSH_OPTS: -i ~/.ssh/nzubia_deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -31,45 +36,47 @@ jobs:
       # ── SSH setup ────────────────────────────────────────────────────────────
 
       - name: Setup SSH key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/nzubia_deploy_key
+          printf '%s\n' "${SSH_PRIVATE_KEY}" > ~/.ssh/nzubia_deploy_key
           chmod 600 ~/.ssh/nzubia_deploy_key
-          printf "Host *\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n  IdentityFile ~/.ssh/nzubia_deploy_key\n" > ~/.ssh/config
-          chmod 600 ~/.ssh/config
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
 
       # ── Sync artifacts ───────────────────────────────────────────────────────
 
       - name: Ensure server release directory exists
-        run: ssh root@${{ secrets.SERVER_HOST }} 'mkdir -p /root/apps/api'
+        run: |
+          ssh $SSH_OPTS root@$SSH_HOST 'mkdir -p /root/apps/api'
 
       - name: Sync dist to server
         run: |
           rsync -az --delete \
-            -e "ssh -i ~/.ssh/nzubia_deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
+            -e "ssh $SSH_OPTS" \
             dist/ \
-            root@${{ secrets.SERVER_HOST }}:/root/apps/api/dist/
+            root@$SSH_HOST:/root/apps/api/dist/
 
       - name: Sync package lock
         run: |
           rsync -az \
-            -e "ssh -i ~/.ssh/nzubia_deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
+            -e "ssh $SSH_OPTS" \
             package-lock.json \
-            root@${{ secrets.SERVER_HOST }}:/root/apps/api/
+            root@$SSH_HOST:/root/apps/api/
 
       # ── Refresh running container ────────────────────────────────────────────
 
       - name: Copy dist into container and restart
         run: |
-          ssh root@${{ secrets.SERVER_HOST }} \
+          ssh $SSH_OPTS root@$SSH_HOST \
             'docker cp /root/apps/api/dist/. nzubia-api:/app/dist/ && docker restart nzubia-api'
 
       # ── Smoke test ───────────────────────────────────────────────────────────
 
       - name: Wait for container to be ready
         run: |
-          ssh root@${{ secrets.SERVER_HOST }} '
+          ssh $SSH_OPTS root@$SSH_HOST '
             for i in $(seq 1 15); do
               STATUS=$(curl -s --max-time 5 -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/api/v1/platform-settings)
               if [ "$STATUS" != "000" ]; then
@@ -85,7 +92,7 @@ jobs:
 
       - name: Smoke test
         run: |
-          ssh root@${{ secrets.SERVER_HOST }} '
+          ssh $SSH_OPTS root@$SSH_HOST '
             STATUS=$(curl -s --max-time 10 -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/api/v1/platform-settings)
             echo "HTTP $STATUS"
             if [ "$STATUS" = "000" ] || [ "$STATUS" -ge 500 ] 2>/dev/null; then
@@ -99,5 +106,5 @@ jobs:
       - name: Print container status
         if: always()
         run: |
-          ssh root@${{ secrets.SERVER_HOST }} \
+          ssh $SSH_OPTS root@$SSH_HOST \
             'docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Image}}"'
