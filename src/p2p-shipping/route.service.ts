@@ -156,7 +156,9 @@ export class RouteService {
         const qb = this.routeRepo
             .createQueryBuilder('route')
             .leftJoinAndSelect('route.courierProfile', 'cp')
-            .where('route.status = :status', { status: RouteStatus.PUBLISHED });
+            .where('route.status = :status', { status: RouteStatus.PUBLISHED })
+            .andWhere('cp.isActive = :isActive', { isActive: true })
+            .andWhere('cp.verificationState = :verState', { verState: CourierVerificationState.ACTIVE });
 
         if (filters.destinationCountry) {
             qb.andWhere('route.destinationCountry LIKE :country', {
