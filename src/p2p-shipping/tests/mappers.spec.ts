@@ -182,7 +182,6 @@ describe('P2P response mappers', () => {
                 phone: '+15551234567',
             } as any,
             originAddress: '22 Market St',
-            contactPhone: '+15557654321',
             originLatitude: 5.5,
             originLongitude: -0.2,
             destinationCountry: 'US',
@@ -202,7 +201,6 @@ describe('P2P response mappers', () => {
 
         expect(out.seeker_user_id).toBe('user-1');
         expect(out.origin_address).toBe('22 Market St');
-        expect(out.contact_phone).toBe('+15557654321');
         expect(out.destination_country).toBe('US');
         expect(out.item_category).toBe('CLOTHING');
         expect(out.weight_kg).toBe(2);

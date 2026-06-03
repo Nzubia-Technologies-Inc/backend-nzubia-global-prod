@@ -4,6 +4,7 @@ import { NotFoundException } from '@nestjs/common';
 import { RouteService, scoreRoute, haversineKm } from '../route.service';
 import { P2pRoute } from '../entities/p2p-route.entity';
 import { P2pCourierProfile } from '../entities/p2p-courier-profile.entity';
+import { P2pCourierRequest } from '../entities/p2p-courier-request.entity';
 import { CourierVerificationState, RouteStatus } from '../enums';
 import { PlatformSettingsService } from '../../platform-settings/platform-settings.service';
 import { EmailService } from '../../notifications/email/email.service';
@@ -175,6 +176,7 @@ describe('RouteService – getRouteFeed', () => {
                 RouteService,
                 { provide: getRepositoryToken(P2pRoute), useValue: routeRepo },
                 { provide: getRepositoryToken(P2pCourierProfile), useValue: makeCourierProfileRepo() },
+                { provide: getRepositoryToken(P2pCourierRequest), useValue: { find: jest.fn().mockResolvedValue([]), findOne: jest.fn().mockResolvedValue(null), save: jest.fn(), delete: jest.fn() } },
                 { provide: PlatformSettingsService, useValue: platformSettings },
                 { provide: EmailService, useValue: makeEmailService() },
             ],
@@ -230,6 +232,7 @@ describe('RouteService – getRouteFeed', () => {
                 RouteService,
                 { provide: getRepositoryToken(P2pRoute), useValue: routeRepo },
                 { provide: getRepositoryToken(P2pCourierProfile), useValue: makeCourierProfileRepo() },
+                { provide: getRepositoryToken(P2pCourierRequest), useValue: { find: jest.fn().mockResolvedValue([]), findOne: jest.fn().mockResolvedValue(null), save: jest.fn(), delete: jest.fn() } },
                 { provide: PlatformSettingsService, useValue: platformSettings },
                 { provide: EmailService, useValue: makeEmailService() },
             ],

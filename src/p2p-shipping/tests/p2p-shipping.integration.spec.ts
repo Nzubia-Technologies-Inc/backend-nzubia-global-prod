@@ -33,6 +33,7 @@ import { PlatformSetting } from '../../platform-settings/entities/platform-setti
 import { Message } from '../../messaging/entities/message.entity';
 
 import { P2pCourierProfile } from '../entities/p2p-courier-profile.entity';
+import { P2pCourierRequest } from '../entities/p2p-courier-request.entity';
 import { P2pRoute } from '../entities/p2p-route.entity';
 import { P2pShipmentRequest } from '../entities/p2p-shipment-request.entity';
 import { P2pOffer } from '../entities/p2p-offer.entity';
@@ -60,6 +61,7 @@ import { DocumentsService } from '../../documents/documents.service';
 import { EmailService } from '../../notifications/email/email.service';
 import { MessagingService } from '../../messaging/messaging.service';
 import { PaymentsService } from '../../payments/payments.service';
+import { PushNotificationService } from '../../notifications/push/push-notification.service';
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -69,6 +71,7 @@ const ALL_ENTITIES = [
     PlatformSetting,
     Message,
     P2pCourierProfile,
+    P2pCourierRequest,
     P2pRoute,
     P2pShipmentRequest,
     P2pOffer,
@@ -163,6 +166,10 @@ describe('P2P Shipping – full lifecycle integration test', () => {
                             clientSecret: 'cs_test',
                         }),
                     },
+                },
+                {
+                    provide: PushNotificationService,
+                    useValue: { sendPushNotification: jest.fn().mockResolvedValue(undefined) },
                 },
             ],
         }).compile();
@@ -283,7 +290,7 @@ describe('P2P Shipping – full lifecycle integration test', () => {
         expect(offer.status).toBe(OfferStatus.PROPOSED);
 
         // 5. Seeker accepts the offer  →  OPEN → MATCHED ─────────────────────
-        const acceptedOffer = await shipmentService.acceptOffer(
+        const { offer: acceptedOffer } = await shipmentService.acceptOffer(
             seekerUser.id,
             offer.id,
         );
